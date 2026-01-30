@@ -1,6 +1,7 @@
 streamlit
 torch
-opencv-python
+torchvision
+opencv-python-headless
 numpy
 matplotlib
-detectron2
+pyyaml
