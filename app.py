@@ -3,106 +3,62 @@ import cv2
 import numpy as np
 import torch
 import os
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
 
-# --- DETECTRON2 IMPORTS ---
-try:
-    from detectron2.engine import DefaultPredictor
-    from detectron2.config import get_cfg
-    from detectron2 import model_zoo
-    from detectron2.utils.visualizer import Visualizer, ColorMode
-    from detectron2.data import MetadataCatalog
-except ImportError:
-    st.error("Detectron2 is not installed. Please check your requirements.txt.")
-
-# --- CONFIGURATION ---
-CLASS_NAMES = ["Fracture"]  # Adjust if you have more classes
-MODEL_WEIGHTS_PATH = "output_xray/model_final.pth"
-
-# Page Layout
-st.set_page_config(page_title="X-Ray Fracture Detection", layout="wide")
+# --- APP CONFIG ---
+st.set_page_config(page_title="X-Ray Fracture Detection", layout="centered")
+CLASS_NAMES = ["Fracture"] 
+MODEL_PATH = "output_xray/model_final.pth"
 
 @st.cache_resource
-def load_predictor():
-    """Loads the Detectron2 model and caches it to memory."""
-    if not os.path.exists(MODEL_WEIGHTS_PATH):
-        st.error(f"Model file not found at {MODEL_WEIGHTS_PATH}. Please check your GitHub folder structure.")
-        return None, None
-
+def load_model():
     cfg = get_cfg()
-    
-    # Use the same base config you used during training
-    # For Faster R-CNN R50 FPN:
+    # Ensure this matches your training architecture (e.g., Faster R-CNN)
     cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
-    
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(CLASS_NAMES)
-    cfg.MODEL.WEIGHTS = MODEL_WEIGHTS_PATH
-    
-    # CRITICAL: Streamlit Cloud uses CPU
-    cfg.MODEL.DEVICE = "cpu" 
-    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Set threshold
-    
+    cfg.MODEL.WEIGHTS = MODEL_PATH
+    cfg.MODEL.DEVICE = "cpu"  # Mandatory for Streamlit Cloud
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
     return DefaultPredictor(cfg), cfg
 
-# --- UI INTERFACE ---
-st.title("🦴 AI-Powered X-Ray Fracture Detection")
-st.markdown("""
-This application uses a **Detectron2** model trained to identify fractures in X-ray images. 
-Upload an image below to see the predictions.
-""")
+# --- UI ---
+st.title("🦴 X-Ray Fracture Detection System")
+st.info("M.Tech AI Project: Detecting bone fractures using Detectron2")
 
-# Sidebar settings
-st.sidebar.header("Settings")
-thresh = st.sidebar.slider("Confidence Threshold", 0.1, 1.0, 0.5, 0.05)
+if not os.path.exists(MODEL_PATH):
+    st.error(f"Error: Could not find {MODEL_PATH}. Please ensure it is in your GitHub repo.")
+else:
+    predictor, cfg = load_model()
+    metadata = MetadataCatalog.get("xray_val").set(thing_classes=CLASS_NAMES)
 
-# Load model
-predictor, cfg = load_predictor()
+    uploaded_file = st.file_uploader("Upload X-Ray Image", type=["jpg", "jpeg", "png"])
 
-# Register Metadata
-metadata = MetadataCatalog.get("fracture_data").set(thing_classes=CLASS_NAMES)
-
-uploaded_file = st.file_uploader("Upload an X-ray image (JPG, PNG, JPEG)", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    # Convert the file to an OpenCV image
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, 1)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Original Image")
-        st.image(image, channels="BGR", use_column_width=True)
+    if uploaded_file:
+        # Load image
+        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
         
-    with col2:
-        st.subheader("Model Prediction")
-        if predictor:
-            with st.spinner("Analyzing..."):
-                # Update threshold based on slider
-                predictor.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = thresh
-                
-                # Run Inference
-                outputs = predictor(image)
-                
-                # Visualize
-                v = Visualizer(image[:, :, ::-1], 
-                               metadata=metadata, 
-                               scale=1.0, 
-                               instance_mode=ColorMode.SEGMENTATION)
-                
-                instances = outputs["instances"].to("cpu")
-                out = v.draw_instance_predictions(instances)
-                
-                # Display processed image
-                st.image(out.get_image()[:, :, ::-1], use_column_width=True)
-                
-                # Summary results
-                num_fractures = len(instances)
-                if num_fractures > 0:
-                    st.warning(f"Detected {num_fractures} potential fracture(s).")
-                else:
-                    st.success("No fractures detected.")
-        else:
-            st.error("Model failed to load.")
+        # Resize for stability (prevents RAM crashes)
+        h, w = img.shape[:2]
+        if w > 1000:
+            img = cv2.resize(img, (1000, int(h * 1000 / w)))
 
-st.divider()
-st.info("Note: This tool is for educational purposes as part of an M.Tech project and should not be used for clinical diagnosis.")
+        with st.spinner("Analyzing Image..."):
+            outputs = predictor(img)
+            
+            # Draw results
+            v = Visualizer(img[:, :, ::-1], metadata=metadata, scale=0.8)
+            out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+            
+            # Layout results
+            st.image(out.get_image()[:, :, ::-1], caption="Detection Results", use_column_width=True)
+            
+            num_instances = len(outputs["instances"])
+            if num_instances > 0:
+                st.warning(f"Found {num_instances} potential fracture areas.")
+            else:
+                st.success("No fractures detected at the current threshold.")
