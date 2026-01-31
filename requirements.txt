@@ -1,7 +1,7 @@
-streamlit
 torch
 torchvision
 opencv-python-headless
-numpy
-matplotlib
-pyyaml
+streamlit
+# Installs Detectron2 CPU version directly from the official wheel
+-f https://dl.fbaipublicfiles.com/detectron2/wheels/cpu/torch1.10/index.html
+detectron2
