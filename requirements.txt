@@ -1,8 +1,5 @@
-torch==2.1.0
-torchvision==0.16.0
+torch
+torchvision
 opencv-python-headless
 streamlit
-pillow
-# The line below installs the pre-built C++ components for CPU
--f https://dl.fbaipublicfiles.com/detectron2/wheels/cpu/torch2.1/index.html
-detectron2
+Pillow
